@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python rocket_landing_simple.py:*)",
+      "Bash(python rocket_landing_test.py:*)",
+      "Bash(py:*)"
+    ]
+  }
+}
