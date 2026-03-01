@@ -7,11 +7,19 @@
 import math
 
 
-def simulate_rocket_landing_demo():
-    """演示火箭着陆算法"""
-    print("=" * 60)
-    print("火箭回收算法 - 演示版本")
-    print("=" * 60)
+def simulate_rocket_landing_demo(Kp_x=0.01, Kd_x=0.005, Kp_y=0.1, Kd_y=0.05, verbose=True):
+    """演示火箭着陆算法
+
+    参数:
+        Kp_x, Kd_x, Kp_y, Kd_y: PID增益
+        verbose: 是否输出进度信息
+    返回:
+        trajectory, success
+    """
+    if verbose:
+        print("=" * 60)
+        print("火箭回收算法 - 演示版本")
+        print("=" * 60)
 
     # 火箭参数
     mass = 25000  # 质量 (kg)
@@ -32,20 +40,15 @@ def simulate_rocket_landing_demo():
     target_x = 0
     target_y = 0
 
-    # 控制参数
-    Kp_x = 0.01
-    Kp_y = 0.1
-    Kd_x = 0.005
-    Kd_y = 0.05
-
     # 模拟参数
     dt = 0.1
     max_time = 60
     trajectory = []
 
-    print(f"初始状态: 高度={y}m, 水平距离={x}m")
-    print(f"初始速度: vx={vx}m/s, vy={vy}m/s")
-    print("开始着陆模拟...")
+    if verbose:
+        print(f"初始状态: 高度={y}m, 水平距离={x}m")
+        print(f"初始速度: vx={vx}m/s, vy={vy}m/s")
+        print("开始着陆模拟...")
 
     for t in range(int(max_time / dt)):
         # 计算控制输入
@@ -54,8 +57,25 @@ def simulate_rocket_landing_demo():
         dvx = -vx
         dvy = -vy
 
+        # 分段控制：根据高度调整PID增益，提高稳定性
+        if y > 1000:
+            Kp_x_eff = Kp_x * 1.5
+            Kd_x_eff = Kd_x * 1.5
+            Kp_y_eff = Kp_y * 0.6
+            Kd_y_eff = Kd_y * 0.6
+        elif y > 100:
+            Kp_x_eff = Kp_x * 1.2
+            Kd_x_eff = Kd_x * 1.2
+            Kp_y_eff = Kp_y * 0.8
+            Kd_y_eff = Kd_y * 0.8
+        else:
+            Kp_x_eff = Kp_x
+            Kd_x_eff = Kd_x
+            Kp_y_eff = Kp_y
+            Kd_y_eff = Kd_y
+
         # 期望姿态角
-        desired_theta = -Kp_x * dx - Kd_x * dvx
+        desired_theta = -Kp_x_eff * dx - Kd_x_eff * dvx
 
         # 限制期望姿态角
         max_desired_theta = math.radians(20)
@@ -65,7 +85,7 @@ def simulate_rocket_landing_demo():
             desired_theta = -max_desired_theta
 
         # 节流阀
-        base_thrust = mass * g + Kp_y * dy + Kd_y * dvy
+        base_thrust = mass * g + Kp_y_eff * dy + Kd_y_eff * dvy
 
         # 限制推力范围
         min_thrust = 0.3 * thrust_max
@@ -171,16 +191,18 @@ def simulate_rocket_landing_demo():
         height_ok = dy < 1.0
 
         if dx < 5.0 and height_ok and vx_ok and vy_ok and theta_ok:
-            print(f"成功着陆! 时间: {t*dt:.1f}s")
+            if verbose:
+                print(f"成功着陆! 时间: {t*dt:.1f}s")
             return trajectory, True
 
         # 检查坠毁
         if y <= 0:
-            print(f"坠毁! 时间: {t*dt:.1f}s")
+            if verbose:
+                print(f"坠毁! 时间: {t*dt:.1f}s")
             return trajectory, False
 
         # 打印进度
-        if t % 50 == 0:
+        if verbose and t % 50 == 0:
             print(f"t={t*dt:.1f}s: 高度={y:.0f}m, 速度={vy:.1f}m/s, 燃料={fuel:.0f}kg, 姿态={math.degrees(theta):.1f}°")
 
     print("模拟超时")
@@ -290,10 +312,46 @@ def print_algorithm_design():
     print("   - 硬件在环: 实时仿真和硬件测试")
 
 
+def optimize_parameters():
+    """通过网格搜索优化PID参数，返回最优设置。"""
+    best = None
+    best_error = float('inf')
+    # 候选范围
+    Kp_x_list = [0.005, 0.01, 0.02]
+    Kd_x_list = [0.0025, 0.005, 0.01]
+    Kp_y_list = [0.05, 0.1, 0.2]
+    Kd_y_list = [0.025, 0.05, 0.1]
+
+    print("开始参数优化...")
+    for Kp_x in Kp_x_list:
+        for Kd_x in Kd_x_list:
+            for Kp_y in Kp_y_list:
+                for Kd_y in Kd_y_list:
+                    traj, success = simulate_rocket_landing_demo(Kp_x, Kd_x, Kp_y, Kd_y, verbose=False)
+                    if not traj:
+                        continue
+                    final = traj[-1]
+                    error = math.hypot(final['x'], final['y'])
+                    # 记录最小误差参数（不论成功）
+                    if error < best_error:
+                        best_error = error
+                        best = (Kp_x, Kd_x, Kp_y, Kd_y, error, success)
+    if best:
+        Kp_x, Kd_x, Kp_y, Kd_y, err, succ = best
+        status = "成功着陆" if succ else "未成功"
+        print(f"优化完成，最佳参数：Kp_x={Kp_x}, Kd_x={Kd_x}, Kp_y={Kp_y}, Kd_y={Kd_y} -> 误差={err:.2f}m ({status})")
+        return Kp_x, Kd_x, Kp_y, Kd_y
+    else:
+        print("优化未找到有效参数")
+        return 0.01, 0.005, 0.1, 0.05
+
+
 def main():
     """主函数"""
+    # 先优化参数
+    Kp_x_opt, Kd_x_opt, Kp_y_opt, Kd_y_opt = optimize_parameters()
     # 运行演示
-    trajectory, success = simulate_rocket_landing_demo()
+    trajectory, success = simulate_rocket_landing_demo(Kp_x_opt, Kd_x_opt, Kp_y_opt, Kd_y_opt)
     print_results(trajectory, success)
 
     # 打印算法设计
